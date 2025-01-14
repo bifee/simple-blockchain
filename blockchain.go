@@ -8,8 +8,11 @@ import (
 	"io"
 	"os"
 	"time"
+	"flag"
 )
 var blockchain []Block
+var nodes []string
+var selfNode string
 
 type Block struct {
 	Index int
@@ -65,10 +68,10 @@ func addBlock(data string, difficulty int) Block{
 	return newBlock
 }
 
-func isBlockchainValid() bool {
-	for i := 1; i < len(blockchain); i++{
-		currentBlock := blockchain[i]
-		prevBlock := blockchain[i - 1]
+func isBlockchainValid(bc []Block) bool {
+	for i := 1; i < len(bc); i++{
+		currentBlock := bc[i]
+		prevBlock := bc[i - 1]
 		if currentBlock.PrevHash != prevBlock.Hash || calculateHash(currentBlock) != currentBlock.Hash {return false}
 	}
 	return true
@@ -91,7 +94,7 @@ func saveBlockchainToFile(){
 		fmt.Println("Erro ao escrever no arquivo:", err)
 		return
 	}
-	fmt.Println("Blockchain salva com sucesso em data.json")
+	//fmt.Println("Blockchain salva com sucesso em data.json")
 }
 
 func repairBlockchain(){
@@ -129,7 +132,7 @@ func loadBlockchainFromFile(){
 		return
 	}
 	fmt.Println("Blockchain carregada com sucesso!")
-	if isBlockchainValid() {
+	if isBlockchainValid(blockchain) {
         fmt.Println("Blockchain é válida.")
     } else {
         fmt.Println("Erro: Blockchain carregada é inválida.")
@@ -156,12 +159,74 @@ func runProofOfWork(block *Block){
 	}
 }
 
+func saveNodesToFile() {
+    file, err := os.Create("nodes.json")
+    if err != nil {
+        fmt.Println("Erro ao criar o arquivo de nós:", err)
+        return
+    }
+    defer file.Close()
+
+    jsonData, err := json.MarshalIndent(nodes, "", "  ")
+    if err != nil {
+        fmt.Println("Erro ao converter nós para JSON:", err)
+        return
+    }
+
+    _, err = file.Write(jsonData)
+    if err != nil {
+        fmt.Println("Erro ao escrever nós no arquivo:", err)
+        return
+    }
+
+    //fmt.Println("Nós salvos com sucesso em nodes.json")
+}
+
+func loadNodesFromFile() {
+    file, err := os.Open("nodes.json")
+    if err != nil {
+        fmt.Println("Arquivo de nós não encontrado. Criando um novo...")
+        return
+    }
+    defer file.Close()
+
+    nodesData, err := io.ReadAll(file)
+    if err != nil {
+        fmt.Println("Erro ao ler o arquivo de nós:", err)
+        return
+    }
+
+    err = json.Unmarshal(nodesData, &nodes)
+    if err != nil {
+        fmt.Println("Erro ao desserializar os nós:", err)
+        return
+    }
+	
+    alreadyExists := false
+    for _, node := range nodes {
+        if node == selfNode {
+            alreadyExists = true
+            break
+        }
+    }
+    if !alreadyExists {
+        nodes = append(nodes, selfNode)
+		saveNodesToFile()
+        fmt.Printf("Próprio nó (%s) adicionado à lista de nós.\n", selfNode)
+    }
+
+    fmt.Println("Nós existentes:", nodes)
+}
 
 func main(){
+	port := flag.String("port", "8080", "Porta para o servidor HTTP")
+    flag.Parse() 
+	selfNode = fmt.Sprintf("http://localhost:%s", *port)
+    fmt.Printf("Iniciando nó na porta %s...\n", *port)
 	loadBlockchainFromFile()
-
-	addBlock("aaa", 2)
-	addBlock("bbb", 3)
- 
+	loadNodesFromFile()
+	startAutoSync(10 * time.Second)
+	startServer(*port)
     saveBlockchainToFile()
+	saveNodesToFile()
 }
